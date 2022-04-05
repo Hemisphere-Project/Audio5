@@ -7,13 +7,15 @@ void setup() {
   M5.begin(); 
   M5.Power.begin();
   
-  LoRa_init();
   
   M5.Lcd.setTextColor(YELLOW);  
   M5.Lcd.setTextSize(2); 
-  M5.Lcd.setCursor(65, 10); 
-  M5.Lcd.println("LoRa TEST"); 
+  M5.Lcd.setCursor(0, 10); 
+  M5.Lcd.println("Audio5\n"); 
   
+  M5.Lcd.print("LoRa init ... "); 
+  LoRa_init();
+  M5.Lcd.println("OK\n"); 
 }
 
 
@@ -26,8 +28,18 @@ void loop()
     M5.Lcd.print("- ");
     
     // Send P
-    if ( LoRa_send("P") ) M5.Lcd.println("P");
+    uint32_t time = LoRa_send("P");
+    if ( time > 0 ) {
+      M5.Lcd.printf("P (%d)\n", time);
+      //M5.Speaker.tone(440, 200);
+    }
     else M5.Lcd.println("Error");
+  } 
+
+  if (M5.BtnB.wasPressed()) 
+  {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 10); 
   } 
 
   if (LoRa_available())
@@ -38,6 +50,7 @@ void loop()
     // Recv
     String msg = LoRa_read();
     M5.Lcd.println(msg);
+    M5.Speaker.tone(440, 200);
   }
   
 }

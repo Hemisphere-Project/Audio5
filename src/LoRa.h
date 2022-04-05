@@ -1,14 +1,14 @@
 #include <Arduino.h>
 
-typedef struct ATCMD {   // Declare PERSON struct type
-    char cmd[10];   // Declare member types
-    char data[10];
+typedef struct ATCMD {   
+    char cmd[10]; 
+    char data[128];
 } ATCMD;
 
 QueueHandle_t cmd_queue;
 SemaphoreHandle_t cmd_lock;
 
-bool AT_cmd(ATCMD c)
+bool AT_execute(ATCMD c)
 {
     // SEND
     char buf[256] = {0};
@@ -39,21 +39,22 @@ bool AT_cmd(ATCMD c)
     return false;
 }
 
-void AT_cmd_async(ATCMD c)
-{
-    xQueueSend(cmd_queue, &c, portMAX_DELAY);
-}
-
 void AT_consume( void * pvParameters )
 {
     ATCMD c;
     while(true)
         if ( xQueueReceive(cmd_queue, &c, portMAX_DELAY) == pdTRUE) {
-            AT_cmd(c.cmd, c.data);
+            AT_execute(c);
+            delay(1);
         }
 }
 
-
+bool AT_cmd(ATCMD c, bool blocking=false)
+{
+    if (blocking) return AT_execute(c);
+    else xQueueSend(cmd_queue, &c, portMAX_DELAY);
+    return true;
+}
 
 
 void LoRa_init(int rxPin=16, int txPin=17)
@@ -64,33 +65,44 @@ void LoRa_init(int rxPin=16, int txPin=17)
 
     Serial2.begin(115200, SERIAL_8N1, rxPin, txPin);
 
-    AT_cmd("AutoLPM", "0");
-    AT_cmd("LORAWAN", "0");
-    AT_cmd("LoraSet", "868000000,18,5,2,1,8,1,0,0");
-    AT_cmd("PrintMode", "0");
-    // AT_cmd("ILOGLVL", "0");
-    AT_cmd("RX", "0");
-
+    AT_cmd( (ATCMD) {"LoraSet",     "868000000,20,12,0,1,8,1,0,0"}, true );
+    AT_cmd( (ATCMD) {"AutoLPM",     "0"}, true );
+    AT_cmd( (ATCMD) {"LORAWAN",     "0"}, true );
+    AT_cmd( (ATCMD) {"PrintMode",   "0"}, true );
+    AT_cmd( (ATCMD) {"RX",   "0"}, true );
 }
 
-bool LoRa_send(String str)
+unsigned long LoRa_send(String str)
 {
-    bool ret = AT_cmd("SendStr", str.c_str());    
-    // AT_cmd("RX", "0");
-    return ret;
+    unsigned long start = millis();
+    ATCMD c = {"SendStr", ""};
+    strncpy(c.data, str.c_str(), sizeof(c.data) - 1);
+    bool ret = AT_cmd( c, true );    
+    AT_cmd( (ATCMD) {"RX",   "0"} );
+    if (ret) return millis() - start;
+    else return 0;
 }
 
 bool LoRa_available() 
 {
-    return Serial2.available() > 0;
+    if( xSemaphoreTake( cmd_lock, 0 ) == pdTRUE )
+    {
+        bool ret = Serial2.available() > 0;
+        xSemaphoreGive(cmd_lock);
+        return ret;
+    }
+    return false;
 }
 
 String LoRa_read()
 {
     String receive_data = "";
+    
+    xSemaphoreTake(cmd_lock, portMAX_DELAY);
     if (Serial2.available()) {
         receive_data = Serial2.readString();
-        // AT_cmd("RX", "0");
+        AT_cmd( (ATCMD) {"RX",   "0"} );
     }
+    xSemaphoreGive(cmd_lock);
     return receive_data;
 }
